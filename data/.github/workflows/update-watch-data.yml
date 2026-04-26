@@ -16,17 +16,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Show current data files
-        run: |
-          ls -lah
-          ls -lah data
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-      - name: Placeholder
+      - name: Install dependencies
         run: |
-          echo "Later we will run Python scripts here to update CSV files."
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      - name: Commit changes if any
+      - name: Build watch market snapshot
+        run: |
+          python scripts/build_watch_snapshot.py
+
+      - name: Commit updated CSV if changed
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git status
+
+          git add data/watch_market_snapshot.csv
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update watch market snapshot"
+            git push
+          fi
