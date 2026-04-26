@@ -30,6 +30,34 @@ jobs:
         run: |
           python scripts/build_watch_snapshot.py
 
+      - name: Debug generated CSV header
+        run: |
+          echo "Current commit:"
+          git rev-parse HEAD
+
+          echo "Script contains search_text?"
+          grep -n "search_text" scripts/build_watch_snapshot.py || true
+
+          echo "CSV header:"
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+
+          path = Path("data/watch_market_snapshot.csv")
+          print("exists:", path.exists())
+          print("size:", path.stat().st_size if path.exists() else "missing")
+
+          with path.open("r", encoding="utf-8", newline="") as f:
+              reader = csv.reader(f)
+              header = next(reader)
+              print(header)
+              print("has reference_key:", "reference_key" in header)
+              print("has search_text:", "search_text" in header)
+          PY
+
+          echo "Git diff:"
+          git diff -- data/watch_market_snapshot.csv | head -80
+
       - name: Commit updated CSV if changed
         run: |
           git config user.name "github-actions"
