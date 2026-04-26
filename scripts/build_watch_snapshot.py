@@ -1,6 +1,7 @@
 import re
 from datetime import datetime, timezone
 from io import StringIO
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -8,21 +9,11 @@ import requests
 
 OUTPUT_PATH = "data/watch_market_snapshot.csv"
 LIGHT_OUTPUT_PATH = "data/watch_search_light.csv"
-SOURCE_FILES_PATH = "data/source_files.csv"
 
-SOURCE_FILES = [
-    {"brand": "Rolex", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/rolex1.csv"},
-    {"brand": "Rolex", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/rolex2.csv"},
-    {"brand": "Omega", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/OMEGa.csv"},
-    {"brand": "Audemars Piguet", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/AP.csv"},
-    {"brand": "Patek Philippe", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/patek.csv"},
-    {"brand": "Cartier", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/cartier.csv"},
-    {"brand": "Tudor", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/tudor.csv"},
-    {"brand": "TAG Heuer", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/tagheuer.csv"},
-    {"brand": "Seiko", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/seiko.csv"},
-    {"brand": "IWC", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/IWC.csv"},
-    {"brand": "Longines", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/Longines.csv"},
-]
+GITHUB_DATASET_API_URL = (
+    "https://api.github.com/repos/philmorefkoung/"
+    "Webscrapped-Watch-Dataset/contents/dataset?ref=main"
+)
 
 OUTPUT_COLUMNS = [
     "watch_id",
@@ -53,6 +44,23 @@ OUTPUT_COLUMNS = [
     "updated_at",
 ]
 
+LIGHT_COLUMNS = [
+    "display_name",
+    "brand",
+    "model",
+    "reference_number",
+    "reference_key",
+    "search_text",
+    "market_price_usd",
+    "market_price_source",
+    "market_price_updated_at",
+    "shop_sources",
+    "source_count",
+    "data_quality",
+    "notes",
+    "updated_at",
+]
+
 
 def today_utc() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -61,23 +69,38 @@ def today_utc() -> str:
 def clean_text(value) -> str:
     if pd.isna(value):
         return ""
+
     text = str(value).strip()
-    if text.lower() in {"nan", "none", "null", "n/a", "unknown", "-"}:
+
+    if text.lower() in {
+        "nan",
+        "none",
+        "null",
+        "n/a",
+        "na",
+        "unknown",
+        "-",
+        "--",
+    }:
         return ""
+
     return text
 
 
 def normalize_reference(value) -> str:
     text = clean_text(value)
+
     if not text:
         return ""
 
     text = text.replace("Ref.", "")
     text = text.replace("REF.", "")
     text = text.replace("Reference", "")
+    text = text.replace("reference", "")
     text = text.strip()
 
-    # Разрешаем типичные символы референсов часов.
+    # Разрешаем типичные символы часовых референсов:
+    # буквы, цифры, точка, дефис, слэш.
     text = re.sub(r"[^A-Za-z0-9.\-/]", "", text)
 
     return text.upper()
@@ -105,7 +128,7 @@ def parse_price(value):
 
     text = str(value).strip()
 
-    # Убираем валютные символы и пробелы.
+    # Убираем валютные символы, пробелы и разделители тысяч.
     text = text.replace(",", "")
     text = re.sub(r"[^0-9.]", "", text)
 
@@ -120,7 +143,7 @@ def parse_price(value):
     if price <= 0:
         return None
 
-    # Для Excel в русской локали безопаснее отдавать целые USD без десятичной точки.
+    # Для Excel в русской локали безопаснее писать целые USD без ".0".
     return int(round(price))
 
 
@@ -132,6 +155,7 @@ def find_column(df: pd.DataFrame, possible_names: list[str]) -> str | None:
         if key in exact:
             return exact[key]
 
+    # Мягкий поиск по вхождению.
     for col in df.columns:
         col_lower = str(col).strip().lower()
         for name in possible_names:
@@ -142,20 +166,170 @@ def find_column(df: pd.DataFrame, possible_names: list[str]) -> str | None:
 
 
 def download_csv(url: str) -> pd.DataFrame:
-    response = requests.get(url, timeout=90)
+    response = requests.get(url, timeout=120)
     response.raise_for_status()
+
+    # dtype=str критичен: референсы часов нельзя давать pandas/Excel
+    # автоматически превращать в числа или даты.
     return pd.read_csv(StringIO(response.text), dtype=str)
+
+
+def guess_brand_from_filename(filename: str) -> str:
+    name = filename.lower().replace(".csv", "").strip()
+    compact = re.sub(r"[^a-z0-9]", "", name)
+
+    mapping = {
+        "rolex1": "Rolex",
+        "rolex2": "Rolex",
+        "rolex": "Rolex",
+        "omega": "Omega",
+        "omegaa": "Omega",
+        "ap": "Audemars Piguet",
+        "audemars": "Audemars Piguet",
+        "patek": "Patek Philippe",
+        "philippe": "Patek Philippe",
+        "cartier": "Cartier",
+        "tudor": "Tudor",
+        "tagheuer": "TAG Heuer",
+        "tag": "TAG Heuer",
+        "iwc": "IWC",
+        "longines": "Longines",
+        "seiko": "Seiko",
+        "breitling": "Breitling",
+        "panerai": "Panerai",
+        "hublot": "Hublot",
+        "zenith": "Zenith",
+        "jaegerlecoultre": "Jaeger-LeCoultre",
+        "jaeger": "Jaeger-LeCoultre",
+        "vacheron": "Vacheron Constantin",
+        "constantin": "Vacheron Constantin",
+        "richardmille": "Richard Mille",
+        "richard": "Richard Mille",
+        "mille": "Richard Mille",
+        "breguet": "Breguet",
+        "ulysse": "Ulysse Nardin",
+        "nardin": "Ulysse Nardin",
+        "hamilton": "Hamilton",
+        "nomos": "NOMOS",
+        "oris": "Oris",
+        "sinn": "Sinn",
+        "lange": "A. Lange & Söhne",
+        "sohne": "A. Lange & Söhne",
+        "a.lange": "A. Lange & Söhne",
+    }
+
+    # Сначала точные/более специфичные ключи.
+    for key in sorted(mapping.keys(), key=len, reverse=True):
+        if key in compact:
+            return mapping[key]
+
+    # fallback: делаем имя файла читаемым.
+    return (
+        filename.replace(".csv", "")
+        .replace("_", " ")
+        .replace("-", " ")
+        .strip()
+        .title()
+    )
+
+
+def discover_source_files() -> list[dict]:
+    print(f"Discovering source files from: {GITHUB_DATASET_API_URL}")
+
+    response = requests.get(
+        GITHUB_DATASET_API_URL,
+        headers={"Accept": "application/vnd.github+json"},
+        timeout=90,
+    )
+    response.raise_for_status()
+
+    items = response.json()
+    sources = []
+
+    for item in items:
+        if item.get("type") != "file":
+            continue
+
+        filename = item.get("name", "")
+
+        if not filename.lower().endswith(".csv"):
+            continue
+
+        download_url = item.get("download_url")
+
+        if not download_url:
+            continue
+
+        brand = guess_brand_from_filename(filename)
+
+        sources.append(
+            {
+                "brand": brand,
+                "url": download_url,
+                "filename": filename,
+            }
+        )
+
+    sources = sorted(sources, key=lambda x: (x["brand"], x["filename"]))
+
+    print(f"Discovered {len(sources)} source CSV files:")
+
+    for source in sources:
+        print(f"- {source['brand']} | {source['filename']} | {source['url']}")
+
+    return sources
+
+
+def detect_columns(raw: pd.DataFrame) -> dict:
+    columns = {
+        "price": find_column(raw, ["price", "listing price", "usd price", "market price"]),
+        "reference": find_column(
+            raw,
+            [
+                "reference number",
+                "reference_number",
+                "reference",
+                "ref",
+                "reference no",
+                "reference no.",
+            ],
+        ),
+        "model": find_column(raw, ["model", "watch model", "name", "title"]),
+        "movement": find_column(raw, ["movement", "caliber", "calibre"]),
+        "condition": find_column(raw, ["condition", "watch condition"]),
+        "year": find_column(raw, ["year", "production year", "manufacture year"]),
+        "case_material": find_column(
+            raw,
+            ["case material", "case_material", "material", "case"],
+        ),
+        "case_size": find_column(
+            raw,
+            ["case size", "case_size", "diameter", "size"],
+        ),
+    }
+
+    print("Detected columns:")
+    for key, value in columns.items():
+        print(f"- {key}: {value}")
+
+    return columns
 
 
 def build_snapshot() -> pd.DataFrame:
     date = today_utc()
     frames = []
 
-    for source in SOURCE_FILES:
+    sources = discover_source_files()
+
+    if not sources:
+        raise RuntimeError("No source CSV files discovered.")
+
+    for source in sources:
         brand = source["brand"]
         url = source["url"]
+        filename = source.get("filename", "")
 
-        print(f"Downloading {brand}: {url}")
+        print(f"Downloading {brand}: {filename} | {url}")
 
         try:
             df = download_csv(url)
@@ -168,6 +342,7 @@ def build_snapshot() -> pd.DataFrame:
 
         df["__brand_from_file"] = brand
         df["__source_url"] = url
+        df["__source_filename"] = filename
         frames.append(df)
 
     if not frames:
@@ -176,19 +351,16 @@ def build_snapshot() -> pd.DataFrame:
     raw = pd.concat(frames, ignore_index=True)
     print(f"Total raw rows: {len(raw)}")
 
-    price_col = find_column(raw, ["price", "listing price", "usd price"])
-    reference_col = find_column(raw, ["reference number", "reference_number", "reference", "ref"])
-    model_col = find_column(raw, ["model", "watch model", "name", "title"])
-    movement_col = find_column(raw, ["movement"])
-    condition_col = find_column(raw, ["condition"])
-    year_col = find_column(raw, ["year"])
-    case_material_col = find_column(raw, ["case material", "case_material", "material"])
-    case_size_col = find_column(raw, ["case size", "case_size", "diameter", "size"])
+    detected = detect_columns(raw)
 
-    print(f"Detected price_col: {price_col}")
-    print(f"Detected reference_col: {reference_col}")
-    print(f"Detected model_col: {model_col}")
-    print(f"Detected movement_col: {movement_col}")
+    price_col = detected["price"]
+    reference_col = detected["reference"]
+    model_col = detected["model"]
+    movement_col = detected["movement"]
+    condition_col = detected["condition"]
+    year_col = detected["year"]
+    case_material_col = detected["case_material"]
+    case_size_col = detected["case_size"]
 
     if reference_col is None:
         raise RuntimeError(f"Reference column not found. Columns: {list(raw.columns)}")
@@ -222,7 +394,9 @@ def build_snapshot() -> pd.DataFrame:
         case_material = clean_text(item.get(case_material_col, "")) if case_material_col else ""
         case_size = clean_text(item.get(case_size_col, "")) if case_size_col else ""
 
-        display_name = " ".join(part for part in [brand, model, reference] if part).strip()
+        display_name = " ".join(
+            part for part in [brand, model, reference] if clean_text(part)
+        ).strip()
 
         search_text = make_search_text(
             brand,
@@ -233,6 +407,8 @@ def build_snapshot() -> pd.DataFrame:
             movement,
             case_material,
             case_size,
+            condition,
+            year,
         )
 
         rows.append(
@@ -262,7 +438,10 @@ def build_snapshot() -> pd.DataFrame:
     print(f"Cleaned rows with price and reference: {len(cleaned)}")
 
     grouped = (
-        cleaned.groupby(["brand", "model", "reference_number", "reference_key"], dropna=False)
+        cleaned.groupby(
+            ["brand", "model", "reference_number", "reference_key"],
+            dropna=False,
+        )
         .agg(
             display_name=("display_name", "first"),
             search_text=("search_text", "first"),
@@ -274,7 +453,10 @@ def build_snapshot() -> pd.DataFrame:
             condition=("condition", "first"),
             market_price_usd=("price", "median"),
             source_count=("price", "count"),
-            source_urls=("source_url", lambda x: " | ".join(sorted(set(map(str, x)))[:5])),
+            source_urls=(
+                "source_url",
+                lambda x: " | ".join(sorted(set(map(str, x)))[:5]),
+            ),
         )
         .reset_index()
     )
@@ -287,7 +469,11 @@ def build_snapshot() -> pd.DataFrame:
         + grouped["reference_key"].astype(str)
     ).str.lower()
 
-    grouped["watch_id"] = grouped["watch_id"].str.replace(r"[^a-z0-9]+", "_", regex=True)
+    grouped["watch_id"] = grouped["watch_id"].str.replace(
+        r"[^a-z0-9]+",
+        "_",
+        regex=True,
+    )
     grouped["watch_id"] = grouped["watch_id"].str.strip("_")
 
     grouped["market_price_source"] = "webscrapped_watch_dataset_median"
@@ -299,44 +485,40 @@ def build_snapshot() -> pd.DataFrame:
     grouped["auction_lot_url"] = ""
 
     grouped["shop_sources"] = "Chrono24 dataset"
+
     grouped["data_quality"] = grouped["source_count"].apply(
         lambda count: "medium" if int(count) >= 3 else "low"
     )
-    grouped["notes"] = "Median price from open historical/active listings dataset; not live appraisal."
+
+    grouped["notes"] = (
+        "Median price from open historical/active listings dataset; "
+        "not live appraisal."
+    )
     grouped["updated_at"] = date
 
     result = grouped[OUTPUT_COLUMNS].copy()
     result = result.sort_values(["brand", "model", "reference_number"])
 
+    print(f"Final grouped rows: {len(result)}")
+
     return result
 
 
 def save_light_index(snapshot: pd.DataFrame) -> None:
-    light_columns = [
-        "display_name",
-        "brand",
-        "model",
-        "reference_number",
-        "reference_key",
-        "search_text",
-        "market_price_usd",
-        "market_price_source",
-        "market_price_updated_at",
-        "shop_sources",
-        "source_count",
-        "data_quality",
-        "notes",
-        "updated_at",
-    ]
-
-    light = snapshot[light_columns].copy()
+    light = snapshot[LIGHT_COLUMNS].copy()
 
     # Сначала более надёжные записи, потом по бренду/названию.
-    light["__quality_rank"] = light["data_quality"].map({
-        "high": 3,
-        "medium": 2,
-        "low": 1,
-    }).fillna(0)
+    light["__quality_rank"] = (
+        light["data_quality"]
+        .map(
+            {
+                "high": 3,
+                "medium": 2,
+                "low": 1,
+            }
+        )
+        .fillna(0)
+    )
 
     light = light.sort_values(
         ["__quality_rank", "source_count", "brand", "display_name"],
@@ -349,10 +531,18 @@ def save_light_index(snapshot: pd.DataFrame) -> None:
     print(f"Saved {len(light)} rows to {LIGHT_OUTPUT_PATH}")
 
 
+def ensure_data_dir() -> None:
+    Path("data").mkdir(parents=True, exist_ok=True)
+
+
 def main():
+    ensure_data_dir()
+
     snapshot = build_snapshot()
+
     snapshot.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
     print(f"Saved {len(snapshot)} rows to {OUTPUT_PATH}")
+
     save_light_index(snapshot)
 
 
