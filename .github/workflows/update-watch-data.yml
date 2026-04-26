@@ -63,7 +63,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
 
-          git add data/watch_market_snapshot.csv
+          git add data/watch_market_snapshot.csv data/watch_search_light.csv
 
           if git diff --cached --quiet; then
             echo "No changes to commit"
