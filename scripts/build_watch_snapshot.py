@@ -7,6 +7,8 @@ import requests
 
 
 OUTPUT_PATH = "data/watch_market_snapshot.csv"
+LIGHT_OUTPUT_PATH = "data/watch_search_light.csv"
+SOURCE_FILES_PATH = "data/source_files.csv"
 
 SOURCE_FILES = [
     {"brand": "Rolex", "url": "https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/rolex1.csv"},
@@ -309,10 +311,49 @@ def build_snapshot() -> pd.DataFrame:
     return result
 
 
+def save_light_index(snapshot: pd.DataFrame) -> None:
+    light_columns = [
+        "display_name",
+        "brand",
+        "model",
+        "reference_number",
+        "reference_key",
+        "search_text",
+        "market_price_usd",
+        "market_price_source",
+        "market_price_updated_at",
+        "shop_sources",
+        "source_count",
+        "data_quality",
+        "notes",
+        "updated_at",
+    ]
+
+    light = snapshot[light_columns].copy()
+
+    # Сначала более надёжные записи, потом по бренду/названию.
+    light["__quality_rank"] = light["data_quality"].map({
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+    }).fillna(0)
+
+    light = light.sort_values(
+        ["__quality_rank", "source_count", "brand", "display_name"],
+        ascending=[False, False, True, True],
+    )
+
+    light = light.drop(columns=["__quality_rank"])
+
+    light.to_csv(LIGHT_OUTPUT_PATH, index=False, encoding="utf-8")
+    print(f"Saved {len(light)} rows to {LIGHT_OUTPUT_PATH}")
+
+
 def main():
     snapshot = build_snapshot()
     snapshot.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
     print(f"Saved {len(snapshot)} rows to {OUTPUT_PATH}")
+    save_light_index(snapshot)
 
 
 if __name__ == "__main__":
