@@ -9,6 +9,7 @@ import requests
 
 OUTPUT_PATH = "data/watch_market_snapshot.csv"
 LIGHT_OUTPUT_PATH = "data/watch_search_light.csv"
+MANUAL_OVERRIDES_PATH = "data/manual_overrides.csv"
 
 GITHUB_DATASET_API_URL = (
     "https://api.github.com/repos/philmorefkoung/"
@@ -173,6 +174,115 @@ def download_csv(url: str) -> pd.DataFrame:
     # автоматически превращать в числа или даты.
     return pd.read_csv(StringIO(response.text), dtype=str)
 
+
+def read_manual_overrides() -> pd.DataFrame:
+    path = Path(MANUAL_OVERRIDES_PATH)
+
+    if not path.exists():
+        print(f"No manual overrides file found: {MANUAL_OVERRIDES_PATH}")
+        return pd.DataFrame()
+
+    overrides = pd.read_csv(path, dtype=str).fillna("")
+
+    if overrides.empty:
+        print("Manual overrides file is empty.")
+        return pd.DataFrame()
+
+    if "reference_key" not in overrides.columns:
+        raise RuntimeError(
+            "manual_overrides.csv must contain reference_key column."
+        )
+
+    overrides["reference_key"] = overrides["reference_key"].apply(make_reference_key)
+
+    print(f"Loaded manual overrides: {len(overrides)} rows")
+
+    return overrides
+
+def apply_manual_overrides(snapshot: pd.DataFrame) -> pd.DataFrame:
+    overrides = read_manual_overrides()
+
+    if overrides.empty:
+        return snapshot
+
+    result = snapshot.copy()
+
+    # Убираем дубли в overrides: последнее значение по reference_key считается актуальным.
+    overrides = overrides.drop_duplicates(subset=["reference_key"], keep="last")
+
+    result = result.merge(
+        overrides,
+        on="reference_key",
+        how="left",
+    )
+
+    override_map = {
+        "display_name_override": "display_name",
+        "brand_override": "brand",
+        "model_override": "model",
+        "year_override": "year",
+        "production_years_override": "production_years",
+        "movement_override": "movement",
+        "case_material_override": "case_material",
+        "case_size_override": "case_size",
+        "market_price_usd_override": "market_price_usd",
+        "auction_price_usd_override": "auction_price_usd",
+        "auction_house_override": "auction_house",
+        "auction_date_override": "auction_date",
+        "auction_lot_url_override": "auction_lot_url",
+        "data_quality_override": "data_quality",
+        "notes_override": "notes",
+    }
+
+    for override_col, target_col in override_map.items():
+        if override_col not in result.columns:
+            continue
+
+        mask = result[override_col].notna() & (result[override_col].astype(str).str.strip() != "")
+
+        if mask.any():
+            result.loc[mask, target_col] = result.loc[mask, override_col]
+
+    # Если руками изменили brand/model/display_name, пересобираем search_text.
+    result["search_text"] = result.apply(
+        lambda row: make_search_text(
+            row.get("brand", ""),
+            row.get("model", ""),
+            row.get("reference_number", ""),
+            row.get("reference_key", ""),
+            row.get("display_name", ""),
+            row.get("movement", ""),
+            row.get("case_material", ""),
+            row.get("case_size", ""),
+            row.get("condition", ""),
+            row.get("year", ""),
+        ),
+        axis=1,
+    )
+
+    # Пересобираем watch_id на случай изменения brand.
+    result["watch_id"] = (
+        result["brand"].astype(str)
+        + "_"
+        + result["reference_key"].astype(str)
+    ).str.lower()
+
+    result["watch_id"] = result["watch_id"].str.replace(
+        r"[^a-z0-9]+",
+        "_",
+        regex=True,
+    )
+    result["watch_id"] = result["watch_id"].str.strip("_")
+
+    # Убираем служебные override-колонки.
+    override_cols = [col for col in result.columns if col.endswith("_override")]
+    result = result.drop(columns=override_cols, errors="ignore")
+
+    result = result[OUTPUT_COLUMNS].copy()
+
+    print("Manual overrides applied.")
+
+    return result
 
 def guess_brand_from_filename(filename: str) -> str:
     name = filename.lower().replace(".csv", "").strip()
@@ -539,12 +649,12 @@ def main():
     ensure_data_dir()
 
     snapshot = build_snapshot()
+    snapshot = apply_manual_overrides(snapshot)
 
     snapshot.to_csv(OUTPUT_PATH, index=False, encoding="utf-8")
     print(f"Saved {len(snapshot)} rows to {OUTPUT_PATH}")
 
     save_light_index(snapshot)
-
 
 if __name__ == "__main__":
     main()
