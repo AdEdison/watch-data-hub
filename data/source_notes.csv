@@ -1,0 +1,5 @@
+source_name,source_type,source_url,license_or_terms,usage_notes,active
+manual_test,manual,,"Internal test rows only",Used for initial Excel connection test,TRUE
+webscrapped_watch_dataset,dataset,https://github.com/philmorefkoung/Webscrapped-Watch-Dataset,check_before_distribution,Open dataset used for initial catalog enrichment,TRUE
+ebay_browse_api,api,https://developer.ebay.com/api-docs/buy/browse/overview.html,requires_developer_account,Active listings only; not sold prices,PLANNED
+christies_results,auction_results,https://www.christies.com/en/results,check_terms,Auction results reference layer,PLANNED
