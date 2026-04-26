@@ -1,0 +1,3 @@
+reference_key,display_name_override,brand_override,model_override,year_override,production_years_override,movement_override,case_material_override,case_size_override,market_price_usd_override,auction_price_usd_override,auction_house_override,auction_date_override,auction_lot_url_override,data_quality_override,notes_override
+116520,Rolex Daytona 116520,Rolex,Daytona,,,,,,27872,,,,,high,Manual verified example
+14790SA,Audemars Piguet Royal Oak 14790SA,Audemars Piguet,Royal Oak,,,,,,,,,,,medium,Manual name fix example
