@@ -1,0 +1,24 @@
+name: Update Watch Data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  update-watch-data:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test workflow visibility
+        run: |
+          echo "Workflow is visible and running"
+          ls -lah
+          ls -lah data
+          ls -lah scripts
