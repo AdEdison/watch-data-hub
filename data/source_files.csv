@@ -1,0 +1,12 @@
+brand,url,enabled
+Rolex,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/rolex1.csv,TRUE
+Rolex,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/rolex2.csv,TRUE
+Omega,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/OMEGa.csv,TRUE
+Audemars Piguet,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/AP.csv,TRUE
+Patek Philippe,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/patek.csv,TRUE
+Cartier,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/cartier.csv,TRUE
+Tudor,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/tudor.csv,TRUE
+TAG Heuer,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/tagheuer.csv,TRUE
+Seiko,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/seiko.csv,TRUE
+IWC,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/IWC.csv,TRUE
+Longines,https://raw.githubusercontent.com/philmorefkoung/Webscrapped-Watch-Dataset/main/dataset/Longines.csv,TRUE
